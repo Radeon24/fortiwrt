@@ -1,0 +1,94 @@
+From: Radeon24 <Radeon24@users.noreply.github.com>
+Subject: [PATCH] ARM: fsoc2: Build without sibling calls on the Faraday
+ FA726TE
+
+On the FortiGate 60D, the Faraday FA726TE core of the FortiSOC2 has
+been seen to occasionally skip an unconditional branch: instead of
+jumping to its target, execution goes on with the next instruction in
+memory. The case that was caught is the tail call that ends
+pool_mayday_timeout():
+
+	msr	CPSR_c, r6		@ local_irq_restore()
+	...
+	b	mod_timer
+
+From time to time the branch is not taken and the CPU falls into
+init_worker_pool(), laid out right after it, with r0 still pointing to
+&pool->mayday_timer. That function then reinitialises the live worker
+pool around it, which shows up a few seconds later as an oops in
+create_worker() or in the worker pool code, on a fraction of the
+boots, depending on the layout, and within a second when the mayday timer
+is made to fire continuously.
+
+The fault depends on where the branch sits: moving it by one word (a
+nop before it) or replacing the tail call with a call and a return
+both make it disappear, over thousands of timer runs. No such
+behaviour of the core is documented, so it is described here as an
+observed erratum; the exact trigger (instruction fetch around the
+branch, interrupt return) is not known.
+
+A function in which the branch is missed falls through into whatever
+follows it, so every tail call emitted by gcc is a latent instance.
+Add CPU_FA726TE_NO_SIBLING_CALLS, selected by ARCH_FSOC2, which builds
+the C code with -fno-optimize-sibling-calls, the flag FRAME_POINTER
+already imposes. A kernel built so has run the timer above more than
+8 000 times without a fault. Text grows by about 0.35%.
+
+Hand-written assembly keeps its own tail branches, and gcc may still
+emit a branch for an identical-code-folding thunk; neither has been
+seen to fault. Other platforms and the FortiSOC1 (FA626TE, where the
+fault has not been seen) are unaffected.
+
+Assisted-by: LLM
+Signed-off-by: Radeon24 <Radeon24@users.noreply.github.com>
+---
+ arch/arm/Kconfig.platforms |  1 +
+ arch/arm/Makefile          |  5 +++++
+ arch/arm/mm/Kconfig        | 12 ++++++++++++
+ 3 files changed, 18 insertions(+)
+
+--- a/arch/arm/Kconfig.platforms
++++ b/arch/arm/Kconfig.platforms
+@@ -109,6 +109,7 @@ config ARCH_FSOC2
+ 	depends on ARCH_MULTI_V5
+ 	depends on CPU_LITTLE_ENDIAN
+ 	select CPU_ARM926T
++	select CPU_FA726TE_NO_SIBLING_CALLS
+ 	select FARADAY_FTINTC010
+ 	select FTTMR010_TIMER
+ 	help
+--- a/arch/arm/Makefile
++++ b/arch/arm/Makefile
+@@ -152,6 +152,11 @@ KBUILD_CFLAGS	+=$(CFLAGS_ABI) $(CFLAGS_I
+ KBUILD_AFLAGS	+=$(CFLAGS_ABI) $(AFLAGS_ISA) -Wa,$(arch-y) $(tune-y) -include $(srctree)/arch/arm/include/asm/unified.h -msoft-float
+ KBUILD_RUSTFLAGS += --target=arm-unknown-linux-gnueabi
+ 
++# Faraday FA726TE: a missed tail call branch runs the next function instead
++ifeq ($(CONFIG_CPU_FA726TE_NO_SIBLING_CALLS),y)
++KBUILD_CFLAGS	+= -fno-optimize-sibling-calls
++endif
++
+ CHECKFLAGS	+= -D__arm__
+ 
+ # Text offset. This list is sorted numerically by address in order to
+--- a/arch/arm/mm/Kconfig
++++ b/arch/arm/mm/Kconfig
+@@ -153,6 +153,18 @@ config CPU_ARM926T
+ 	  Say Y if you want support for the ARM926T processor.
+ 	  Otherwise, say N.
+ 
++config CPU_FA726TE_NO_SIBLING_CALLS
++	bool
++	help
++	  The Faraday FA726TE has been seen to occasionally fall through an
++	  unconditional branch instead of taking it: execution goes on with
++	  the next instruction in memory. gcc turns calls in tail position
++	  into such a branch, so that a missed tail call silently runs the
++	  function laid out next with the caller's arguments.
++
++	  Selected by the platforms built around this core, to build the C
++	  code with -fno-optimize-sibling-calls.
++
+ # FA526
+ config CPU_FA526
+ 	bool

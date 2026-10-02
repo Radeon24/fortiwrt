@@ -1,0 +1,56 @@
+From: Radeon24 <Radeon24@users.noreply.github.com>
+Subject: [PATCH] ARM: setup: do not take the Faraday FA726TE for an ARM7
+
+__get_cpu_architecture() treats any main ID register with bits [15:12]
+equal to 7 and bit 19 clear as an old-style ARM7 ID. The Faraday FA726TE
+has a new-style ID, 0x66057261: architecture field 5 (ARMv5TE), part
+number 0x726. It is thus reported as ARMv3 ("CPU: ... revision 1 (ARMv3)"
+at boot, "CPU architecture: 3" in /proc/cpuinfo).
+
+Old-style ARM7 IDs come from ARM-designed cores; Faraday cores always use
+the new-style format (FA526 0x66015261, FA626TE 0x66056261). Skip the
+ARM7 test when the implementer is Faraday (0x66), so the ID is decoded
+by its architecture field. Other CPUs are not affected.
+
+Apart from the reported string, the wrong value changes, on this core:
+- build_mem_type_table(): the TEX bits are stripped from the section
+  mappings and a write-allocate cache policy is downgraded to
+  write-back, as for pre-ARMv5 cores;
+- tcm_init(): the TCM would be ignored (unused here: no HAVE_TCM);
+- the alignment statistics hide the LDRD/STRD counter.
+The ARMv6 and ARMv7 tests (strict permissions, READ_IMPLIES_EXEC, idmap
+bit 4, cache ID) give the same result for ARMv3 and ARMv5TE.
+
+This is kept separate from the proc_info entry: the lookup there does
+not depend on it, and it touches the generic ID decoding.
+
+Assisted-by: LLM
+Signed-off-by: Radeon24 <Radeon24@users.noreply.github.com>
+---
+ arch/arm/include/asm/cputype.h | 1 +
+ arch/arm/kernel/setup.c        | 4 +++-
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+--- a/arch/arm/include/asm/cputype.h
++++ b/arch/arm/include/asm/cputype.h
+@@ -65,6 +65,7 @@
+ #define ARM_CPU_IMP_ARM			0x41
+ #define ARM_CPU_IMP_BRCM		0x42
+ #define ARM_CPU_IMP_DEC			0x44
++#define ARM_CPU_IMP_FARADAY		0x66
+ #define ARM_CPU_IMP_INTEL		0x69
+ 
+ /* ARM implemented processors */
+--- a/arch/arm/kernel/setup.c
++++ b/arch/arm/kernel/setup.c
+@@ -242,7 +242,9 @@ static int __get_cpu_architecture(void)
+ 
+ 	if ((read_cpuid_id() & 0x0008f000) == 0) {
+ 		cpu_arch = CPU_ARCH_UNKNOWN;
+-	} else if ((read_cpuid_id() & 0x0008f000) == 0x00007000) {
++	} else if ((read_cpuid_id() & 0x0008f000) == 0x00007000 &&
++		   read_cpuid_implementor() != ARM_CPU_IMP_FARADAY) {
++		/* ARM7 ID; the Faraday FA726TE has a new-style ID, part 0x726 */
+ 		cpu_arch = (read_cpuid_id() & (1 << 23)) ? CPU_ARCH_ARMv4T : CPU_ARCH_ARMv3;
+ 	} else if ((read_cpuid_id() & 0x00080000) == 0x00000000) {
+ 		cpu_arch = (read_cpuid_id() >> 16) & 7;

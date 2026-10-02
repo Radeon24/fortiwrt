@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+. /lib/functions/uci-defaults.sh
+
+board_config_update
+
+case "$(board_name)" in
+fortinet,fg60d)
+	# No network interface yet: keep 99-default_network from setting
+	# up a LAN on eth0.
+	json_select_object network
+	json_select ..
+	;;
+esac
+
+board_config_flush
+
+exit 0

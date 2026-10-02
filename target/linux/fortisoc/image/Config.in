@@ -1,0 +1,13 @@
+config FORTISOC_BASE_CONTAINER
+	string "FortiGate base container (local path, optional)"
+	depends on TARGET_fortisoc
+	default ""
+	help
+	  By default, the TFTP image the boot loader runs from RAM (boot menu
+	  option [R]) is built around a synthetic firmware container that
+	  holds no vendor bytes.
+
+	  As a fallback, give here the path to a base container extracted by
+	  the user from a firmware image of his own appliance: the kernel is
+	  then put in its ext2 instead. That container is proprietary: an
+	  image built from it must not be distributed.

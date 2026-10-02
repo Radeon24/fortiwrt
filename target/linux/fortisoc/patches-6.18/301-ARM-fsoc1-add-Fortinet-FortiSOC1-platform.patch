@@ -1,0 +1,48 @@
+From: Radeon24 <Radeon24@users.noreply.github.com>
+Subject: [PATCH] ARM: fsoc1: add Fortinet FortiSOC1 platform
+
+The FortiSOC1 is the SoC of the Fortinet FortiGate 60C appliance. It is a
+Faraday FA626TE core with stock Faraday peripherals (FTINTC010, FTTMR010,
+FTUART010, FTWDT010), all supported by existing drivers. Its network
+processor is the only custom block.
+
+Like ARCH_MOXART, the platform needs no mach- directory: the generic DT
+machine descriptor is enough, so this only adds the Kconfig symbol.
+
+The stock boot loader passes ATAGs and cannot load a device tree, so a
+bootable kernel needs ARM_APPENDED_DTB and ARM_ATAG_DTB_COMPAT. These are
+user-visible boot options: they are left to the kernel configuration and
+not selected here. The help text says so.
+
+Assisted-by: LLM
+Signed-off-by: Radeon24 <Radeon24@users.noreply.github.com>
+---
+ arch/arm/Kconfig.platforms | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+--- a/arch/arm/Kconfig.platforms
++++ b/arch/arm/Kconfig.platforms
+@@ -87,6 +87,23 @@ config MACH_ASM9260
+ 	help
+ 	  Support for Alphascale ASM9260 based platform.
+ 
++config ARCH_FSOC1
++	bool "Fortinet FortiSOC1"
++	depends on ARCH_MULTI_V4
++	depends on CPU_LITTLE_ENDIAN
++	select CPU_FA526
++	select FARADAY_FTINTC010
++	select FTTMR010_TIMER
++	help
++	  Support for the Fortinet FortiSOC1, found in the FortiGate 60C
++	  appliance. It is built around a Faraday FA626TE core and stock
++	  Faraday peripherals: FTINTC010 interrupt controller, FTTMR010
++	  timer, FTUART010 serial port and FTWDT010 watchdog.
++
++	  The stock boot loader cannot pass a device tree. It only passes
++	  ATAGs, so a kernel for this platform needs ARM_APPENDED_DTB and
++	  ARM_ATAG_DTB_COMPAT.
++
+ menuconfig ARCH_HPE
+ 	bool "HPE SoC support"
+ 	depends on ARCH_MULTI_V7

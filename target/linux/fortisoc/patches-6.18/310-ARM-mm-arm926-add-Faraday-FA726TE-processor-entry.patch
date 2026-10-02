@@ -1,0 +1,118 @@
+From: Radeon24 <Radeon24@users.noreply.github.com>
+Subject: [PATCH] ARM: mm: arm926: add Faraday FA726TE processor entry
+
+The Faraday FA726TE is the core of the Fortinet FortiSOC2 (FortiGate 60D
+appliance). Its main ID register reads 0x66057261: implementer 0x66
+(Faraday), architecture ARMv5TE, part number 0x726. No proc_info entry
+matches it, so __lookup_processor_type() fails.
+
+Despite its name, the FA726TE is not handled like the FA526 and FA626TE.
+The vendor kernel of the appliance drives it like an ARM926EJ-S:
+- its cache type register reports the ARM926 cache type (write-back,
+  clean with the "test and clean" operation, 32-byte lines);
+- the cache maintenance code of the vendor kernel was rewritten for this
+  core: it uses the ARM926 "test, clean and invalidate" loop and never
+  the FA526 "clean and invalidate all D cache" operation, nor the FA526
+  extended control register;
+- the control register value it sets (0x3135) is the one of arm926_crval.
+
+So add an entry to proc-arm926.S that reuses the ARM926 processor, cache
+and TLB functions. Its setup code first does what the vendor setup code
+does before the common part: turn the TCM regions off and flush the
+branch target buffer.
+
+The hwcaps are those of the ARM926 without Jazelle (the core is "TE", not
+"TEJ"). The match is strict on the part number, with the mask of the
+Faraday entries in proc-fa526.S, so the entries cannot overlap.
+
+Assisted-by: LLM
+Signed-off-by: Radeon24 <Radeon24@users.noreply.github.com>
+---
+ arch/arm/mm/Kconfig       |  3 +++
+ arch/arm/mm/proc-arm926.S | 52 +++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 55 insertions(+)
+
+--- a/arch/arm/mm/Kconfig
++++ b/arch/arm/mm/Kconfig
+@@ -147,6 +147,9 @@ config CPU_ARM926T
+ 	  instruction sequences for cache and TLB operations.  Curiously,
+ 	  there is no documentation on it at the ARM corporate website.
+ 
++	  This also supports the Faraday FA726TE, which has the cache and
++	  TLB layout of the ARM926.
++
+ 	  Say Y if you want support for the ARM926T processor.
+ 	  Otherwise, say N.
+ 
+--- a/arch/arm/mm/proc-arm926.S
++++ b/arch/arm/mm/proc-arm926.S
+@@ -446,6 +446,26 @@ __arm926_setup:
+ 	ret	lr
+ 	.size	__arm926_setup, . - __arm926_setup
+ 
++/*
++ * The Faraday FA726TE has the cache and TLB layout of the ARM926EJ-S, and
++ * its vendor kernel drives it with the same control register value. Its
++ * vendor setup code also turns off the TCM regions and flushes the branch
++ * target buffer before enabling the MMU: do the same, then run the ARM926
++ * setup. Only r0 is used, like in __arm926_setup.
++ */
++	.type	__fa726te_setup, #function
++__fa726te_setup:
++	mrc	p15, 0, r0, c9, c1, 0		@ data TCM region
++	bic	r0, r0, #1			@ disable
++	mcr	p15, 0, r0, c9, c1, 0
++	mrc	p15, 0, r0, c9, c1, 1		@ instruction TCM region
++	bic	r0, r0, #1			@ disable
++	mcr	p15, 0, r0, c9, c1, 1
++	mov	r0, #0
++	mcr	p15, 0, r0, c7, c5, 6		@ flush branch target buffer
++	b	__arm926_setup
++	.size	__fa726te_setup, . - __fa726te_setup
++
+ 	/*
+ 	 *  R
+ 	 * .RVI ZFRS BLDP WCAM
+@@ -466,6 +486,8 @@ arm926_crval:
+ 	string	cpu_arch_name, "armv5tej"
+ 	string	cpu_elf_name, "v5"
+ 	string	cpu_arm926_name, "ARM926EJ-S"
++	string	cpu_fa726te_arch_name, "armv5te"
++	string	cpu_fa726te_name, "FA726TE"
+ 
+ 	.align
+ 
+@@ -495,3 +517,33 @@ __arm926_proc_info:
+ 	.long	v4wb_user_fns
+ 	.long	arm926_cache_fns
+ 	.size	__arm926_proc_info, . - __arm926_proc_info
++
++/*
++ * Faraday FA726TE, ARMv5TE without Jazelle. The match is strict on the
++ * part number (0x726), with the mask of the other Faraday entries
++ * (FA526, FA626TE), so it cannot overlap with them.
++ */
++	.type	__fa726te_proc_info,#object
++__fa726te_proc_info:
++	.long	0x66017261
++	.long	0xff01fff1
++	.long   PMD_TYPE_SECT | \
++		PMD_SECT_BUFFERABLE | \
++		PMD_SECT_CACHEABLE | \
++		PMD_BIT4 | \
++		PMD_SECT_AP_WRITE | \
++		PMD_SECT_AP_READ
++	.long   PMD_TYPE_SECT | \
++		PMD_BIT4 | \
++		PMD_SECT_AP_WRITE | \
++		PMD_SECT_AP_READ
++	initfn	__fa726te_setup, __fa726te_proc_info
++	.long	cpu_fa726te_arch_name
++	.long	cpu_elf_name
++	.long	HWCAP_SWP|HWCAP_HALF|HWCAP_THUMB|HWCAP_FAST_MULT|HWCAP_EDSP
++	.long	cpu_fa726te_name
++	.long	arm926_processor_functions
++	.long	v4wbi_tlb_fns
++	.long	v4wb_user_fns
++	.long	arm926_cache_fns
++	.size	__fa726te_proc_info, . - __fa726te_proc_info

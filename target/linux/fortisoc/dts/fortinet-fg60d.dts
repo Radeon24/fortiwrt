@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: GPL-2.0
+/dts-v1/;
+
+/*
+ * FortiGate 60D, console only: the interrupt controller, the timer, the
+ * watchdog (restart handler) and the console UART. The network processor,
+ * the switch, the USB controllers, the GPIO block, the boot flash and the
+ * L2 cache are left off for now.
+ */
+
+#include "fsoc2.dtsi"
+
+/ {
+	model = "Fortinet FortiGate 60D";
+	compatible = "fortinet,fg60d", "fortinet,fsoc2";
+
+	aliases {
+		serial0 = &uart0;
+	};
+
+	chosen {
+		stdout-path = "serial0:9600n8";
+	};
+
+	/*
+	 * 2 GiB of RAM. The vendor firmware keeps the top 128 MiB out of
+	 * the memory of its kernel.
+	 */
+	memory@0 {
+		device_type = "memory";
+		reg = <0x00000000 0x78000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		/*
+		 * Descriptor rings the boot loader leaves the network
+		 * processor running on: RX at 0x9a00000 with its buffers up
+		 * to 0x9a20000, TX at 0x9a20420 with its buffer at 0x9a205c0.
+		 * The network processor keeps writing there until a driver
+		 * takes it over: never give this memory to the kernel.
+		 */
+		np_loader: np-loader@9a00000 {
+			reg = <0x09a00000 0x00200000>;
+			no-map;
+		};
+
+		/*
+		 * Packet buffer of the network processor, 0x100 blocks of
+		 * 64 KiB, where the boot loader puts it.
+		 */
+		np_pbuf: np-pbuf@9c00000 {
+			reg = <0x09c00000 0x01000000>;
+			no-map;
+		};
+
+		/*
+		 * Flow tables of the network processor (hash table, then
+		 * overflow table), where the vendor firmware puts them.
+		 */
+		np_flow: np-flow@3c000000 {
+			reg = <0x3c000000 0x03800000>;
+			no-map;
+		};
+
+		/*
+		 * Security associations of the IPsec engine of the network
+		 * processor, where the vendor firmware puts them (they survive
+		 * a reboot).
+		 */
+		np_sa: np-sa@3fc00000 {
+			reg = <0x3fc00000 0x00400000>;
+			no-map;
+		};
+
+		/*
+		 * Top 128 MiB, kept out of the memory of the vendor kernel;
+		 * reserved here too in case the boot loader passes a memory
+		 * size that covers them, which would replace the one above.
+		 */
+		vendor_reserved: memory@78000000 {
+			reg = <0x78000000 0x08000000>;
+			no-map;
+		};
+	};
+};
+
+&uart0 {
+	status = "okay";
+};

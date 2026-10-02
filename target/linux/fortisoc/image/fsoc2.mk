@@ -4,7 +4,7 @@ define Device/fortinet_fg-60d
   DEVICE_VENDOR := Fortinet
   DEVICE_MODEL := FortiGate 60D
   SOC := fsoc2
-  FORTIGATE_MODEL := 60d
+  FORTIGATE_MODEL := FGT60D
   DEVICE_DTS := fortinet-fg60d
   SUPPORTED_DEVICES := fortinet,fg60d
 endef
